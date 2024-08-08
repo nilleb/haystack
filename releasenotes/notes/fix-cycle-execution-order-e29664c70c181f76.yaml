@@ -1,0 +1,5 @@
+---
+fixes:
+  - |
+    Fix bug that would cause Components that are not supposed to be ran to run if
+    the Pipeline has a loop.

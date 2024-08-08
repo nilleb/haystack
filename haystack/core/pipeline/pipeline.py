@@ -231,6 +231,8 @@ class Pipeline(PipelineBase):
                         raise PipelineMaxLoops(msg)
 
                     res: Dict[str, Any] = self._run_component(name, components_inputs[name])
+                    # Delete all the inputs that were consumed by the component.
+                    components_inputs[name] = {}
 
                     if name in include_outputs_from:
                         # Deepcopy the outputs to prevent downstream nodes from modifying them
