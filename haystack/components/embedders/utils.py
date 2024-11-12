@@ -1,4 +1,5 @@
 import hashlib
+from typing import Any, Tuple
 
 
 def sha_hash(text: str) -> str:
@@ -11,3 +12,12 @@ def sha_hash(text: str) -> str:
         Hashed text.
     """
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+class CacheProvider:
+    def persist(self, key: str, value: Any):
+        raise NotImplementedError
+
+    def load(self, key: str) -> Tuple[bool, Any]:
+        raise NotImplementedError
+        raise NotImplementedError

@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import hashlib
 import os
 from typing import Any, Dict, List, Optional
 
@@ -10,19 +9,11 @@ from openai import OpenAI
 from openai.types.create_embedding_response import CreateEmbeddingResponse
 
 from haystack import component, default_from_dict, default_to_dict
-from haystack.components.embedders.utils import sha_hash
+from haystack.components.embedders.utils import CacheProvider, sha_hash
 from haystack.utils import Secret, deserialize_secrets_inplace
 
 OPENAI_TIMEOUT = float(os.environ.get("OPENAI_TIMEOUT", 30))
 OPENAI_MAX_RETRIES = int(os.environ.get("OPENAI_MAX_RETRIES", 5))
-
-
-class CacheProvider:
-    def persist(self, key: str, value: Any):
-        raise NotImplementedError
-
-    def load(self, key: str) -> Any:
-        raise NotImplementedError
 
 
 @component
@@ -171,8 +162,8 @@ class OpenAITextEmbedder:
             return self._call(text_to_embed)
 
         key = f"embeddings-{self.model}-{self.dimensions or '1536'}-{sha_hash(text_to_embed)}"
-        serialized = self.cache_provider.load(key)
-        if serialized is not None:
+        found_in_cache, serialized = self.cache_provider.load(key)
+        if found_in_cache:
             return CreateEmbeddingResponse.model_validate_json(serialized)
         else:
             response = self._call(text_to_embed)

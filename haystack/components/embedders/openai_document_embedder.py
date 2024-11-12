@@ -11,7 +11,7 @@ from openai.types.create_embedding_response import CreateEmbeddingResponse
 from tqdm import tqdm
 
 from haystack import Document, component, default_from_dict, default_to_dict
-from haystack.components.embedders.utils import sha_hash
+from haystack.components.embedders.utils import CacheProvider, sha_hash
 from haystack.utils import Secret, deserialize_secrets_inplace
 
 
@@ -52,6 +52,7 @@ class OpenAIDocumentEmbedder:
         embedding_separator: str = "\n",
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        cache_provider: Optional[CacheProvider] = None,
     ):
         """
         Creates an OpenAIDocumentEmbedder component.
@@ -106,6 +107,7 @@ class OpenAIDocumentEmbedder:
         self.progress_bar = progress_bar
         self.meta_fields_to_embed = meta_fields_to_embed or []
         self.embedding_separator = embedding_separator
+        self.cache_provider = cache_provider
 
         if timeout is None:
             timeout = float(os.environ.get("OPENAI_TIMEOUT", 30.0))
