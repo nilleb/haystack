@@ -2,16 +2,27 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import hashlib
 import os
 from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
+from openai.types.create_embedding_response import CreateEmbeddingResponse
 
 from haystack import component, default_from_dict, default_to_dict
+from haystack.components.embedders.utils import sha_hash
 from haystack.utils import Secret, deserialize_secrets_inplace
 
 OPENAI_TIMEOUT = float(os.environ.get("OPENAI_TIMEOUT", 30))
 OPENAI_MAX_RETRIES = int(os.environ.get("OPENAI_MAX_RETRIES", 5))
+
+
+class CacheProvider:
+    def persist(self, key: str, value: Any):
+        raise NotImplementedError
+
+    def load(self, key: str) -> Any:
+        raise NotImplementedError
 
 
 @component
@@ -49,6 +60,7 @@ class OpenAITextEmbedder:
         suffix: str = "",
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        cache_provider: Optional[CacheProvider] = None,
     ):
         """
         Creates an OpenAITextEmbedder component.
@@ -91,6 +103,7 @@ class OpenAITextEmbedder:
         self.prefix = prefix
         self.suffix = suffix
         self.api_key = api_key
+        self.cache_provider = cache_provider
 
         if timeout is None:
             timeout = float(os.environ.get("OPENAI_TIMEOUT", 30.0))
@@ -142,6 +155,30 @@ class OpenAITextEmbedder:
         deserialize_secrets_inplace(data["init_parameters"], keys=["api_key"])
         return default_from_dict(cls, data)
 
+    def _call(self, text_to_embed: str):
+        if self.dimensions is not None:
+            response = self.client.embeddings.create(
+                model=self.model, dimensions=self.dimensions, input=text_to_embed
+            )
+        else:
+            response = self.client.embeddings.create(
+                model=self.model, input=text_to_embed
+            )
+        return response
+
+    def _cached_call(self, text_to_embed: str):
+        if self.cache_provider is None:
+            return self._call(text_to_embed)
+
+        key = f"embeddings-{self.model}-{self.dimensions or '1536'}-{sha_hash(text_to_embed)}"
+        serialized = self.cache_provider.load(key)
+        if serialized is not None:
+            return CreateEmbeddingResponse.model_validate_json(serialized)
+        else:
+            response = self._call(text_to_embed)
+            self.cache_provider.persist(key, response.model_dump_json())
+            return response
+
     @component.output_types(embedding=List[float], meta=Dict[str, Any])
     def run(self, text: str):
         """
@@ -167,10 +204,7 @@ class OpenAITextEmbedder:
         # replace newlines, which can negatively affect performance.
         text_to_embed = text_to_embed.replace("\n", " ")
 
-        if self.dimensions is not None:
-            response = self.client.embeddings.create(model=self.model, dimensions=self.dimensions, input=text_to_embed)
-        else:
-            response = self.client.embeddings.create(model=self.model, input=text_to_embed)
+        response = self._cached_call(text_to_embed)
 
         meta = {"model": response.model, "usage": dict(response.usage)}
 

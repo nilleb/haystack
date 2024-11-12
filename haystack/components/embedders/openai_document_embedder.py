@@ -7,9 +7,11 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from openai import OpenAI
+from openai.types.create_embedding_response import CreateEmbeddingResponse
 from tqdm import tqdm
 
 from haystack import Document, component, default_from_dict, default_to_dict
+from haystack.components.embedders.utils import sha_hash
 from haystack.utils import Secret, deserialize_secrets_inplace
 
 
@@ -185,24 +187,39 @@ class OpenAIDocumentEmbedder:
             texts_to_embed.append(text_to_embed)
         return texts_to_embed
 
-    def _call(self, input):
+    def _call(self, text_to_embed: str):
         if self.dimensions is not None:
             response = self.client.embeddings.create(
-                model=self.model, dimensions=self.dimensions, input=input
+                model=self.model, dimensions=self.dimensions, input=text_to_embed
             )
         else:
-            response = self.client.embeddings.create(model=self.model, input=input)
+            response = self.client.embeddings.create(
+                model=self.model, input=text_to_embed
+            )
         return response
 
-    def _safe_call(self, input):
+    def _safe_call(self, text_to_embed: str):
         try:
-            return self._call(input)
+            return self._call(text_to_embed)
         except Exception:
             separator = "\n-----------debug: text separator----------\n"
             logging.exception(
-                f"Failed to embed documents. {separator.join([doc for doc in input])}"
+                f"Failed to embed documents. {separator.join(text_to_embed)}"
             )
             return None
+
+    def _cached_call(self, text_to_embed: str):
+        if self.cache_provider is None:
+            return self._call(text_to_embed)
+
+        key = f"embeddings-{self.model}-{self.dimensions or '1536'}-{sha_hash(text_to_embed)}"
+        serialized = self.cache_provider.load(key)
+        if serialized is not None:
+            return CreateEmbeddingResponse.model_validate_json(serialized)
+        else:
+            response = self._call(text_to_embed)
+            self.cache_provider.persist(key, response.model_dump_json())
+            return response
 
     def _embed_batch(
         self, texts_to_embed: List[str], batch_size: int
